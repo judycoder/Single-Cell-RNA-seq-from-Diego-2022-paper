@@ -1,0 +1,249 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(Seurat)
+library(tidyverse)
+library(SingleCellExperiment)
+
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+  install.packages("BiocManager")
+}
+BiocManager::install("scDblFinder")
+
+library(scDblFinder)
+```
+
+# Load the Seurat object
+We previously saved the data as an RDS file in our output/ subfolder. 
+```{r}
+S5_NT <- readRDS("/Users/apple/Desktop/GSE167880_RAW/rds_output/GSM5114460_S5_NT.rds")
+S5_DT <- readRDS("/Users/apple/Desktop/GSE167880_RAW/rds_output/GSM5114459_S5_DT.rds")
+```
+
+Let's remind ourselves of what the data looked like
+```{r}
+# if starting from raw counts object
+S5_NT <- NormalizeData(S5_NT)
+S5_NT <- FindVariableFeatures(S5_NT)
+S5_NT <- ScaleData(S5_NT)
+S5_NT_PCA<- RunPCA(S5_NT)
+
+S5_NT <- RunUMAP(S5_NT, dims = 1:30)
+
+DimPlot(S5_NT, reduction = "umap")
+
+
+```
+
+#Merge
+```{r}
+DietSeurat (S5_NT)
+
+DietSeurat (S5_DT)
+```
+#merged old and young endo subset
+```{r}
+mergedS5 <- merge (S5_NT, S5_DT)
+```
+#Normalization 
+```{r}
+mergedS5 <- NormalizeData(mergedS5)
+```
+#Finding highly variable genes -Essential for PCA
+#nfeatures = only 2000 number of genes are selected
+```{r}
+mergedS5 <- FindVariableFeatures(mergedS5,
+                               selection.method="vst",
+                               nfeatures = 2000)
+```
+# PCA continued
+```{r}
+mergedS5 <- ScaleData(mergedS5)
+```
+
+#now we can run PCA
+```{r}
+mergedendoyo <- RunPCA(mergedendoyo)
+```
+
+#visualize the PCA
+```{r}
+DimPlot(mergedendoyo, reduction='pca')
+```
+```{r}
+mergedendoyo <- RunUMAP(mergedendoyo, dims=1:30)
+DimPlot(mergedendoyo, group.by = "orig.ident", shuffle= T)
+```
+```{r}
+DimPlot(mergedendoyo, label=T)
+```
+# ***integration again*** 
+```{r}
+mergedendoyo.int <- SplitObject(mergedendoyo, split.by = "orig.ident")
+
+mergedendoyo.int <- lapply(mergedendoyo.int, FUN = function(x) {
+    x <- NormalizeData(x)
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000)
+})
+```
+```{r}
+features <- SelectIntegrationFeatures(object.list = mergedendoyo.int)
+mergedendoyo.int <- lapply(X = mergedendoyo.int, FUN = function(x) {
+    x <- ScaleData(x, features = features, verbose = FALSE)
+    x <- RunPCA(x, features = features, verbose = FALSE)
+})
+```
+
+```{r}
+mergedendoyo.anchors <- FindIntegrationAnchors(object.list = mergedendoyo.int, 
+                                         anchor.features = features, 
+                                         reduction="rpca")
+mergedendoyo <- IntegrateData(anchorset = mergedendoyo.anchors)
+mergedendoyo
+```
+
+```{r}
+mergedendoyo <- ScaleData(mergedendoyo)
+mergedendoyo <- RunPCA(mergedendoyo, verbose=F)
+mergedendoyo <- RunUMAP(mergedendoyo, dims=1:30)
+mergedendoyo <- FindNeighbors(mergedendoyo, dims=1:30)
+mergedendoyo <- FindClusters(mergedendoyo, resolution=0.5)
+DefaultAssay(mergedendoyo) <- "RNA"
+DimPlot(mergedendoyo, label=T)
+DimPlot(mergedendoyo, group.by="orig.ident")
+DimPlot(mergedendoyo, group.by="seurat_annotations", label=T)
+```
+
+# Identify endo cell types
+```{r}
+DotPlot(mergedendoyo, features=c("Chga", "Ins2", "Iapp", "Nkx6-1", "Mafa", "Slc2a2", "Ucn3", "Gcg", "Arx","Fev", "Mafb", "Chgb", "Irx2", "Sst", "Hhex", "Pou3fl", "Ppy", "Tspan8", "Ghrl", "Pdx1", "Gp2", "Cpa1", "Sox9","Fyn", "Pecam", "Vim"), cols=c('lightgrey', 'purple')) + 
+  theme(axis.text = element_text(angle=45, hjust=1))
+```
+
+```{r}
+saveRDS(mergedendoyo, file="~/Desktop/Endomerged.rds")
+```
+
+#Cleanup non-endo
+```{r}
+mEndoyo <- subset(mEndoyo,subset = seurat_clusters %in% c(0,1,2,3,4,5,6,7,12,16))
+DimPlot(mEndoyo,label = TRUE, pt.size = 0.05)
+```
+#Recluster 
+```{r}
+mEndoyo <- RunUMAP(Endoyoung3, dims=1:30)
+mEndoyo <- FindNeighbors(Endoyoung3, dims=1:30)
+mEndoyo <- FindClusters(Endoyoung3, resolution=0.5)
+```
+
+# Identify endo cell types
+```{r}
+DotPlot(Endoyoung3, features=c("Chga", "Ins2", "Iapp", "Nkx6-1", "Mafa", "Slc2a2", "Ucn3", "Gcg", "Arx","Fev", "Mafb", "Chgb", "Irx2", "Sst", "Hhex", "Pou3fl", "Ppy", "Tspan8", "Ghrl", "Pdx1", "Gp2", "Cpa1", "Sox9","Fyn", "Pecam", "Vim"), cols=c('lightgrey', 'purple')) + 
+  theme(axis.text = element_text(angle=45, hjust=1))
+```
+#Beta cell phenotypes:
+#Mt1/2 https://link.springer.com/article/10.1007/s00125-019-05008-3 beta cell failure
+#Also tested apoptosis (Casp1 Casp3) and inflammatory but not many cells were + so removed*
+#Clock regulators in mice beta cells: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4415205/
+```{r}
+DotPlot(Endoyoung3, features=c("Ins2", "Gcg", "Sst", "Ppy", "Slc2a2", "Mafa", "Ucn3","Clock", "Per1", "Per3", "Baml1", "Cry2", "Dbp", "Mki67", "Pcna", "Top2a", "Ern1", "Atf6", "Ddit3",  "Atm", "Chk2", "Mt1", "Mt2"), cols=c('red', 'darkred', 'blue','darkblue'), split.by = "orig.ident") + 
+  theme(axis.text = element_text(angle=45, hjust=1))
+```
+
+#Rename clusters
+```{r}
+new.cluster.ids <- c("c0 Beta cells-mature", "c1 Beta cells-ER stress", "c2 Beta cells-Failing ","c3 Polyhormonal cells", "c4 Alpha cells", "c5 Delta cells", "c6 Gamma cells", "c7 Polyhormonal cells-failing", "c8 Polyhormonal cells", "c9 Polyhormonal cells-Proliferative", "c10 Beta cells-mature")
+names(new.cluster.ids) <- levels(Endoyoung)
+Endoyoung <- RenameIdents(Endoyoung, new.cluster.ids) 
+DimPlot(Endoyoung, reduction = "umap", label = TRUE, pt.size = 0.05) 
+```
+```{r}
+DimPlot(Endoyoung2, label=T, split.by="orig.ident")
+```
+#to save png:
+```{r}
+Endoy2DimPlot <- DimPlot(Endoyoung2, reduction = "umap", label = TRUE, pt.size = 0.05) 
+png ("Endoy2DimPlot.png", res = 250, width = 1200, height =1000)
+Endoy2DimPlot
+```
+
+# Finding markers of each cluster
+```{r}
+cluster_markers_Endoyoung2 <- FindAllMarkers(Endoyoung2,
+                                  logfc.threshold = 0.5, 
+                                  only.pos = T,
+                                  split.by = "orig.ident") 
+```
+View(markers)
+```{r}
+cluster_markers_Endoyoung2 %>%
+  group_by(cluster, split.by="orig.ident") %>%
+  top_n(20)
+```
+```{r}
+write.csv(cluster_markers_Endoyoung2, "~/Desktop/Attisano lab/Seda/Cluster markers/Endoyoung2_YA_DC_Oct03.csv", row.names = FALSE)
+```
+#Cluster frequencies: 
+Integration might change this and eliminate the effect. If so check in with David again. 
+
+```{r}
+cluster_frq_Endoyoung2 <- Endoyoung2@meta.data %>%
+  group_by(seurat_clusters,orig.ident) %>%
+  summarise(count=n()) %>%
+  mutate(relative_freq = count/sum(count)) %>%
+  mutate(data_set = "Endoyoung2")
+
+cluster_frq_Endoyoung2
+```
+```{r}
+write.csv(cluster_frq_Endoyoung2, "~/Desktop/Attisano lab/Seda/Cluster freq/Endoyoung2_clustfrq_YA_DC_Oct03.csv", row.names = FALSE)
+```
+
+#Heat map
+```{r}
+top_genes_Endoyoung2 <- cluster_markers_Endoyoung2%>% 
+  group_by(cluster) %>%
+  top_n(10) %>% 
+  pull(gene) %>%
+  unique() #in case any markers are duplicated
+```
+
+```{r fig.width=12}
+DoHeatmap(Endoyoung2, features=top_genes_Endoyoung2)+ theme(text= element_text(size=10))
+```
+
+#import gene ontology and make figure 
+wait for code from David. 
+
+# Differential expression
+```{r}
+#Weird requirement for monocle to run the following differential expression
+## Calculate size factors using built-in function in monocle3
+cds <- estimate_size_factors(cds)
+cds@rowRanges@elementMetadata@listData[["gene_short_name"]] <- rownames(EndoyoungND2[["RNA"]])
+cds@rowRanges@elementMetadata@listData[["gene_short_name"]] <- rownames(EndoldND[["RNA"]])
+de_results %>% arrange(q_value))
+```
+
+#Save seurat obj 
+```{r}
+    saveRDS(Endoyoung3, file="~/Desktop/Attisano lab/Seda/Endoyoung3_YA_DC_Oct03.rds")
+```
+
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
